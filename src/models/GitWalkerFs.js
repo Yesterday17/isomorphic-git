@@ -98,7 +98,16 @@ export class GitWalkerFs {
       if ((await entry.type()) === 'tree') {
         entry._content = undefined
       } else {
-        const content = await fs.read(`${dir}/${entry._fullpath}`)
+        const path = `${dir}/${entry._fullpath}`
+
+        let content
+        if (entry._mode === 0o120000) {
+          // readlink for symlink
+          content = await fs.readlink(path)
+        } else {
+          content = await fs.read(path)
+        }
+
         // workaround for a BrowserFS edge case
         entry._actualSize = content.length
         if (entry._stat && entry._stat.size === -1) {
