@@ -17,7 +17,7 @@ export class StreamReader {
       this._ended &&
       // here buffer might be set to undefined
       (typeof this.buffer === 'undefined' ||
-        this.cursor === this.buffer?.length)
+        (this.buffer && this.cursor === this.buffer.length))
     )
   }
 
