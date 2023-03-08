@@ -174,6 +174,32 @@ export class GitPackIndex {
     lastPercent = null
     let count = 0
     const objectsByDepth = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    // Map<oid-required, Set<object-to-resolve>>
+    const delayedRefDeltas = new Map()
+    const readObject = async (obj) => {
+      const offset = obj.offset
+
+      p.readDepth = 0
+      p.externalReadDepth = 0
+      const { type, object } = await p.readSlice({ start: offset })
+      objectsByDepth[p.readDepth] += 1
+      const oid = await shasum(GitObject.wrap({ type, object }))
+      obj.oid = oid
+      hashes.push(oid)
+      offsets.set(oid, offset)
+      crcs[oid] = obj.crc
+
+      if (delayedRefDeltas.has(oid)) {
+        const refs = delayedRefDeltas.get(oid)
+        for (const ref of refs.values()) {
+          await readObject(ref)
+          count++
+        }
+        delayedRefDeltas.delete(oid)
+      }
+    }
+
     for (let offset in offsetToObject) {
       offset = Number(offset)
       const percent = Math.floor((count * 100) / totalObjectCount)
@@ -191,18 +217,40 @@ export class GitPackIndex {
 
       const o = offsetToObject[offset]
       if (o.oid) continue
-      try {
-        p.readDepth = 0
-        p.externalReadDepth = 0
-        const { type, object } = await p.readSlice({ start: offset })
-        objectsByDepth[p.readDepth] += 1
-        const oid = await shasum(GitObject.wrap({ type, object }))
-        o.oid = oid
-        hashes.push(oid)
-        offsets.set(oid, offset)
-        crcs[oid] = o.crc
-      } catch (err) {
-        continue
+
+      // for ref-delta, we may postpone the process
+      if (o.type === 'ref-delta') {
+        const raw = (await p.pack).slice(offset)
+        const reader = new BufferCursor(raw)
+
+        // skip length
+        const byte = reader.readUInt8()
+        const lastFour = byte & 0b1111
+        const multibyte = byte & 0b10000000
+        if (multibyte) {
+          otherVarIntDecode(reader, lastFour)
+        }
+
+        const oid = reader.slice(20).toString('hex')
+        if (!offsets.has(oid)) {
+          // this delta would be resolved later
+          count--
+
+          const set = delayedRefDeltas.get(oid) || new Set()
+          set.add(o)
+          delayedRefDeltas.set(oid, set)
+
+          continue
+        }
+      }
+
+      await readObject(o)
+    }
+
+    // Now that the whole pack has been processed, all objects remained in delayedRefHandler should be external
+    for (const refs of delayedRefDeltas.values()) {
+      for (const ref of refs.values()) {
+        await readObject(ref)
       }
     }
 
