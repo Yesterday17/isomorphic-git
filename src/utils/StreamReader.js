@@ -13,7 +13,12 @@ export class StreamReader {
   }
 
   eof() {
-    return this._ended && this.cursor === this.buffer.length
+    return (
+      this._ended &&
+      // here buffer might be set to undefined
+      (typeof this.buffer === 'undefined' ||
+        this.cursor === this.buffer?.length)
+    )
   }
 
   tell() {
