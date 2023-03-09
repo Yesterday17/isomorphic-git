@@ -177,7 +177,7 @@ export class GitPackIndex {
 
     // Map<oid-required, Set<object-to-resolve>>
     const delayedRefDeltas = new Map()
-    const readObject = async (obj) => {
+    const readObject = async obj => {
       const offset = obj.offset
 
       p.readDepth = 0
